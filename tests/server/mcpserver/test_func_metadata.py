@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any, Final, NamedTuple, TypedDict
 
 import annotated_types
-import pytest
+import pytes
 from dirty_equals import IsPartialDict
 from mcp_types import CallToolResult, ContentBlock, EmbeddedResource, InputRequiredResult, TextContent
 from pydantic import BaseModel, Field, ValidationError
@@ -1531,7 +1531,7 @@ def test_validation_error_does_not_echo_input_value():
     def fn(name: str, age: int) -> str: ...  # pragma: no branch
 
     meta = func_metadata(fn)
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(ValidationError) as exc_info:
         meta.arg_model.model_validate({"name": "Alice", "age": "not-a-number"})
 
     error_text = str(exc_info.value)
@@ -1539,3 +1539,22 @@ def test_validation_error_does_not_echo_input_value():
     assert "int_parsing" in error_text or "int" in error_text.lower(), (
         "Error should still describe the rule (type mismatch)"
     )
+
+
+def test_validation_error_does_not_echo_input_value_nested():
+    """Nested model fields must also not leak input values (PII/PHI risk).
+
+    Regression test for: https://github.com/modelcontextprotocol/python-sdk/issues/3572
+    """
+
+    class Inner(BaseModel):
+        age: int
+
+    def fn(payload: Inner) -> str: ...  # pragma: no branch
+
+    meta = func_metadata(fn)
+    with pytest.raises(ValidationError) as exc_info:
+        meta.arg_model.model_validate({"payload": {"age": "not-a-number"}})
+
+    error_text = str(exc_info.value)
+    assert "not-a-number" not in error_text, "Nested rejected input value must not appear in validation error"
