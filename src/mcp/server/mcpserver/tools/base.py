@@ -150,7 +150,14 @@ class Tool(BaseModel):
         except ValidationError as exc:
             # The caller's arguments don't match the input schema: the model's mistake
             # to read and correct, so it is reported like a deliberate ToolError.
-            raise ToolError(f"Error executing tool {self.name}: {exc}") from exc
+            # Use include_input=False to prevent leaking sensitive input values
+            # (PII/PHI, credentials) back to the caller. This also covers nested
+            # BaseModel fields that don't inherit ArgModelBase's hide_input_in_errors.
+            parts: list[str] = []
+            for e in exc.errors(include_input=False):
+                loc = ".".join(str(x) for x in e["loc"])
+                parts.append(f"{loc}: {e['msg']}" if loc else e["msg"])
+            raise ToolError(f"Error executing tool {self.name}: " + "; ".join(parts)) from exc
         except MCPError:
             raise
         except Exception as exc:
